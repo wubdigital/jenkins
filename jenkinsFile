@@ -1,72 +1,78 @@
 pipeline {
+    agent any
 
-   agent any
+    environment {
+        BUILD_NUMBER_ID = "${env.BUILD_NUMBER ?: '0'}"
+    }
 
-   stages {
-
-      stage('Checkout') {
-        steps {
-           echo "מושכים את הקוד מהמאגר"
-           checkout scm
-        }
-      }
-
-      stage('Install') {
-        steps {
-           echo "מתקינים תלויות"
-           sh "npm ci"
-        }
-      }
-
-      stage('Test') {
-        steps {
-           echo "מריצים בדיקות אם יש לנו ברכה ריקה זה ייכשל כאן"
-           sh "npm test"
-        }
-      }
-
-      stage('Build image') {
-        steps {
-           echo "בונים Docker Image"
-           sh 'docker build -t jenkins:${BUILD_NUMBER} -t jenkins:latest .'
-        }
-      }
-
-      stage('Deploy') {
+    stages {
+        stage('Checkout Code') {
             steps {
-                echo 'עוצרים קונטיינר ישן ומריצים את הגרסה החדשה על פורט 8001'
-                sh '''
-                    docker rm -f greets-live 
-                    docker run -d --name greets-live -p 8001:8000 jenkins:latest
-                '''
+                // משיכת הקוד ממאגר ה-Version Control (Git/GitHub)
+                checkout scm
             }
-      }
-   }
-   post {
-       success {
-            echo "תהליך עבר בהצלחה🤣"
-       }
+        }
 
-       failure {
-         echo "משהו נכשל😲"
-       }
+        stage('Extract Git Commit') {
+            steps {
+                script {
+                    // חילוץ מזהה הקומיט עבור חותמת הבנייה
+                    env.COMMIT_SHA = sh(script: "git rev-parse --short=7 HEAD", returnStdout: true).trim()
+                    echo "Current Commit SHA: ${env.COMMIT_SHA}"
+                }
+            }
+        }
+
+        stage('Run Tests & Coverage Gate') {
+            steps {
+                script {
+                    // הרצת בדיקות יחידה ואכיפת שער כיסוי 80% בתיקיית ה-API
+                    dir('api') {
+                        sh 'npm install'
+                        sh "npm test -- --coverage --coverageThreshold='{\"global\":{\"lines\":80}}'"
+                    }
+                    
+                    // הרצת בדיקות יחידה ואכיפת שער כיסוי 80% בתיקיית ה-Web
+                    dir('web') {
+                        sh 'npm install'
+                        sh "npm test -- --coverage --coverageThreshold='{\"global\":{\"lines\":80}}'"
+                    }
+                }
+            }
+        }
+
+        stage('Build Docker Images') {
+            when {
+                // שלב הבנייה ירוץ אך ורק בענף ה-main בהתאם להנחיות המטלה
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                }
+            }
+            steps {
+                script {
+                    // בניית תמונות ה-Docker לשני השירותים עם Build Args
+                    sh "docker build --build-arg BUILD_NUMBER=${env.BUILD_NUMBER_ID} --build-arg COMMIT_SHA=${env.COMMIT_SHA} -t api-service ./api"
+                    sh "docker build --build-arg BUILD_NUMBER=${env.BUILD_NUMBER_ID} --build-arg COMMIT_SHA=${env.COMMIT_SHA} -t web-service ./web"
+                }
+            }
+        }
+
+        stage('Deploy with Docker Compose') {
+            when {
+                // פריסה מלאה לאוויר תתבצע רק בענף ה-main
+                anyOf {
+                    branch 'main'
+                    branch 'master'
+                }
+            }
+            steps {
+                script {
+                    // הרמת הסביבה באמצעות Docker Compose
+                    sh 'docker compose down'
+                    sh 'docker compose up -d --build'
+                }
+            }
+        }
     }
 }
-
-
-// node {
-//     checkout scm
-//     docker.image('mysql:8-oracle').withRun('-e "MYSQL_ROOT_PASSWORD=my-secret-pw"') { c ->
-//         docker.image('mysql:8-oracle').inside("--link ${c.id}:db") {
-//             /* Wait until mysql service is up */
-//             sh 'while ! mysqladmin ping -hdb --silent; do sleep 1; done'
-//         }
-//         docker.image('oraclelinux:9').inside("--link ${c.id}:db") {
-//             /*
-//              * Run some tests that require MySQL, and assume that it is
-//              * available on the host name `db`
-//              */
-//             sh 'make check'
-//         }
-//     }
-// }

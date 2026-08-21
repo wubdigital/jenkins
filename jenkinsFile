@@ -16,7 +16,7 @@ pipeline {
         stage('Extract Git Commit') {
             steps {
                 script {
-                    // חילוץ מזהה הקומיט עבור חותמת הבנייה
+                    // חילוץ 7 התווים הראשונים של מזהה הקומיט
                     env.COMMIT_SHA = sh(script: "git rev-parse --short=7 HEAD", returnStdout: true).trim()
                     echo "Current Commit SHA: ${env.COMMIT_SHA}"
                 }
@@ -43,11 +43,8 @@ pipeline {
 
         stage('Build Docker Images') {
             when {
-                // שלב הבנייה ירוץ אך ורק בענף ה-main בהתאם להנחיות המטלה
-                anyOf {
-                    branch 'main'
-                    branch 'master'
-                }
+                // שלב הבנייה ירוץ אך ורק בענף ה-main או master בהתאם לדרישת סעיף 4
+                expression { env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'master' }
             }
             steps {
                 script {
@@ -60,11 +57,8 @@ pipeline {
 
         stage('Deploy with Docker Compose') {
             when {
-                // פריסה מלאה לאוויר תתבצע רק בענף ה-main
-                anyOf {
-                    branch 'main'
-                    branch 'master'
-                }
+                // פריסה מלאה לאוויר תתבצע אך ורק בענף ה-main או master
+                expression { env.BRANCH_NAME == 'main' || env.BRANCH_NAME == 'master' }
             }
             steps {
                 script {
@@ -73,6 +67,15 @@ pipeline {
                     sh 'docker compose up -d --build'
                 }
             }
+        }
+    }
+
+    post {
+        success {
+            echo "Pipeline executed successfully for branch: ${env.BRANCH_NAME ?: 'unknown'}"
+        }
+        failure {
+            echo "Pipeline failed! Quality Gate or Build condition was not met."
         }
     }
 }

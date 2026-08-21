@@ -1,1 +1,6 @@
-node_module
+node_modules/
+api/node_modules/
+web/node_modules/
+coverage/
+.DS_Store
+```[cite: 2]
